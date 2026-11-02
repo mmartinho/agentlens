@@ -2,3 +2,5 @@
 node_modules/
 agentlens-report.html
 agentlens-report.json
+
+.claude/
