@@ -51,12 +51,12 @@ Gera `agentlens-report.html` e `agentlens-report.json` no diretório atual.
 
 ## Servidor com histórico
 
-API REST HTTP que analisa repositórios e persiste os resultados em banco de dados SQLite local.
+API REST HTTP que analisa repositórios e persiste os resultados em banco de dados SQLite local, usando o módulo nativo `node:sqlite` (requer Node.js ≥ 22.13 apenas para o servidor; a CLI segue em Node ≥ 18; zero dependências npm, nada para instalar). No Node 22.13 o `node:sqlite` emite um `ExperimentalWarning` no stderr ao abrir o banco; é esperado e inofensivo (pode ser silenciado com `NODE_NO_WARNINGS=1`).
 
 ```bash
-npm install
 node server.js              # porta 3000 (padrão)
 PORT=8080 node server.js    # porta customizada
+HOST=0.0.0.0 node server.js   # interface de escuta (padrão 127.0.0.1)
 ```
 
 ### Endpoints
@@ -67,8 +67,15 @@ PORT=8080 node server.js    # porta customizada
 | `GET` | `/history` | Lista todas as análises salvas |
 | `GET` | `/history/:id` | Análise completa por ID |
 | `DELETE` | `/history/:id` | Remove uma análise |
+| `POST` | `/repos` | `{ "source": "github", "owner", "repo", "result": {...} }` — salva (upsert) um repositório analisado no browser; responde `201 { repo, analysisId }` |
+| `GET` | `/repos` | Lista repositórios salvos; `?hasAgents=1` filtra os que têm agents |
+| `GET` | `/repos/:id` | Repositório + `analyses` (cada item com `id`, `created_at`, `cli_version`, `total_tokens`; a mais recente também traz `result` completo) |
+| `DELETE` | `/repos/:id` | Remove o repositório e suas análises |
+| `GET` | `/` | Serve o `agentlens.html` |
 
-O app HTML pode ser apontado para `GET /history` para exibir o histórico de análises salvas.
+Erros têm o formato `{ "error": "mensagem" }`. O CORS (`Access-Control-Allow-Origin: *`) é enviado **somente** nas rotas `/repos`; `/analyze` e `/history` respondem 403 `origem não permitida` (sem CORS) quando a requisição traz um `Origin` diferente do host do servidor (sem `Origin` é aceito), evitando que sites externos leiam o disco local. O servidor limita o body a 5 MB e escuta em `127.0.0.1` por padrão (`HOST=...` para alterar; `/analyze` lê o disco local, não exponha em redes).
+
+O app HTML, aberto em `http://localhost:3000`, salva automaticamente os repositórios analisados e os lista na aba Reports.
 
 O banco de dados fica em `agentlens-history.db` no diretório de trabalho. Cada análise salva a versão do CLI (`cliVersion`) para rastrear compatibilidade entre versões.
 
@@ -80,7 +87,7 @@ O banco de dados fica em `agentlens-history.db` no diretório de trabalho. Cada 
 npm test
 ```
 
-Roda testes unitários do core e testes de integração da API com `node:test` nativo (Node.js ≥ 18, sem dependências extras).
+Roda testes unitários do core e testes de integração da API com `node:test` nativo (Node.js ≥ 22.13 para os testes da API, que usam `node:sqlite`; sem dependências extras).
 
 ---
 

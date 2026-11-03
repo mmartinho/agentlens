@@ -1,4 +1,12 @@
 <!DOCTYPE html>
+<!--
+Autor(es): hugohvf, marcus.antonio.martinho.silva@gmail.com
+Data Criação: (histórico do projeto; arquivo anterior a este cabeçalho)
+Data Atualização: 2026-11-03
+Descrição: App web single-file do AgentLens e template do relatório gerado pelo CLI (o cli.js injeta a tag bootstrap antes de fim do head). Analisa repos do GitHub no browser, compara repositórios e visualiza relatórios locais.
+
+Opcionalmente conversa com a API do server.js (rotas /repos) para persistir análises e listar "Repositórios salvos"; sem API (file://) tudo continua funcionando offline.
+-->
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -417,6 +425,20 @@ footer a{color:var(--g500);text-decoration:none}.footer a:hover{color:var(--cyan
 .library-repo-actions{display:flex;gap:8px;flex-wrap:wrap}
 .library-repo-actions button{background:var(--card);border:1px solid var(--card-border);border-radius:6px;padding:5px 10px;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--g700);font-family:'Space Grotesk',sans-serif;transition:.15s}
 .library-repo-actions button:hover{border-color:rgba(37,71,244,.4);color:var(--cyan)}
+/* Painel "Repositórios salvos" (API opcional): só aparece quando o server.js responde */
+.api-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.api-title{font-size:.82rem;font-weight:800;color:var(--g500);text-transform:uppercase;letter-spacing:.05em}
+.api-status{font-size:.74rem;color:var(--g500)}
+.api-filter{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:.82rem;color:var(--g700);cursor:pointer}
+.api-filter input{width:18px;height:18px;cursor:pointer}
+.api-repo-btn{display:block;width:100%;min-height:44px;text-align:left;cursor:pointer;font-family:'Space Grotesk',sans-serif;color:inherit;transition:border-color .15s,background .15s}
+.api-repo-btn:hover{border-color:rgba(37,71,244,.4)}
+.api-repo-btn:focus-visible,.api-filter input:focus-visible,.api-retry:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.api-repo-btn:disabled{opacity:.6;cursor:progress}
+.api-line{display:block}
+.api-toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);max-width:min(92vw,520px);background:var(--card);color:var(--g700);border:1px solid var(--orange);border-radius:10px;padding:12px 16px;font-size:.82rem;box-shadow:0 6px 24px rgba(0,0,0,.35);z-index:1000}
+.api-note{font-size:.76rem;color:var(--orange);margin-top:8px}
+@media(prefers-reduced-motion:reduce){.api-repo-btn{transition:none}}
 .compare-repo-chip.unresolved{border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.08)}
 .compare-repo-chip .crep-meta{font-size:.72rem;color:var(--g500);margin-top:2px}
 .compare-repo-chip .crep-name-wrap{display:flex;flex-direction:column;gap:2px}
@@ -876,6 +898,15 @@ footer a{color:var(--g500);text-decoration:none}.footer a:hover{color:var(--cyan
         </div>
       </div>
     </div>
+    <div id="api-repos-panel" class="compare-card hidden" style="margin-top:20px" role="region" aria-labelledby="lbl-api-repos">
+      <div class="api-head">
+        <h4 class="api-title" id="lbl-api-repos"></h4>
+        <span class="api-status" id="api-status"></span>
+      </div>
+      <label class="api-filter"><input type="checkbox" id="api-filter-agents" onchange="loadApiRepos()"><span id="lbl-api-filter"></span></label>
+      <div class="library-list" id="api-repos-list" aria-live="polite"></div>
+      <div class="api-note hidden" id="api-note" role="status"></div>
+    </div>
     <div id="snapshots-timeline" class="hidden" style="margin-top:20px"></div>
     <div class="compare-card cmp-saved-panel" style="margin-top:20px">
       <h4 id="lbl-saved-comparisons"></h4>
@@ -888,6 +919,7 @@ footer a{color:var(--g500);text-decoration:none}.footer a:hover{color:var(--cyan
 
 </div>
 
+<div id="api-toast" class="api-toast hidden" role="status" aria-live="polite"></div>
 <footer>
   <span id="footer-text"></span>
   <span style="margin:0 10px;opacity:.4">·</span>
@@ -1085,6 +1117,19 @@ const I18N = {
     scenarioCostLabel: '/month',
     scatterPlotTitle: '📈 Tokens × Monthly Cost',
     historicalSnapshots: '🕑 Historical Snapshots',
+    apiSavedRepos: 'Saved repositories',
+    apiFilterAgents: 'Only repos with agents',
+    apiStatusOnline: (base) => `API connected · ${base}`,
+    apiLoading: 'Loading saved repositories…',
+    apiEmpty: 'No repositories saved yet. Analyze a GitHub repo and it will show up here.',
+    apiEmptyAgents: 'No saved repositories with agent configs.',
+    apiLoadError: 'Could not load saved repositories.',
+    apiRetry: 'Try again',
+    apiSaveError: 'Could not save the analysis to the API. The result is still shown here.',
+    apiOpenError: 'Could not open this saved repository.',
+    apiAnalysesCount: (n) => `${n} ${n === 1 ? 'analysis' : 'analyses'}`,
+    apiNoAgents: 'no agents',
+    localApi: 'Saved (API)',
     orgAreaLabel: 'GitHub Organization or User URL',
     orgAreaBtn: 'Scan',
     heavyRefBadge: 'heavy',
@@ -1282,6 +1327,19 @@ const I18N = {
     scenarioCostLabel: '/mês',
     scatterPlotTitle: '📈 Tokens × Custo Mensal',
     historicalSnapshots: '🕑 Histórico de Snapshots',
+    apiSavedRepos: 'Repositórios salvos',
+    apiFilterAgents: 'Só repos com agents',
+    apiStatusOnline: (base) => `API conectada · ${base}`,
+    apiLoading: 'Carregando repositórios salvos…',
+    apiEmpty: 'Nenhum repositório salvo ainda. Analise um repo do GitHub e ele aparecerá aqui.',
+    apiEmptyAgents: 'Nenhum repositório salvo com configs de agents.',
+    apiLoadError: 'Não foi possível carregar os repositórios salvos.',
+    apiRetry: 'Tentar de novo',
+    apiSaveError: 'Não foi possível salvar a análise na API. O resultado continua aqui na tela.',
+    apiOpenError: 'Não foi possível abrir este repositório salvo.',
+    apiAnalysesCount: (n) => `${n} ${n === 1 ? 'análise' : 'análises'}`,
+    apiNoAgents: 'sem agents',
+    localApi: 'Salvo (API)',
     orgAreaLabel: 'URL de Organização ou Usuário GitHub',
     orgAreaBtn: 'Escanear',
     heavyRefBadge: 'pesado',
@@ -1304,6 +1362,7 @@ function setLang(l) {
   applyI18N();
   renderLocalWorkspace();
   renderLocalBanner();
+  renderApiRepos();
   renderCmpQueue();
   if (COMPARE_STATE.results.length) renderCompareResults();
   if (ORG_SCAN_STATE.done) renderOrgResults();
@@ -1325,6 +1384,8 @@ function applyI18N() {
   document.getElementById('btn-import-report').textContent = T('importReport');
   document.getElementById('lbl-library-reports').textContent = T('libraryReports');
   document.getElementById('lbl-saved-comparisons').textContent = T('savedComparisons');
+  document.getElementById('lbl-api-repos').textContent = T('apiSavedRepos');
+  document.getElementById('lbl-api-filter').textContent = T('apiFilterAgents');
   document.getElementById('lbl-cmp-add').textContent = T('cmpAddLabel');
   document.getElementById('btn-cmp-add').textContent = T('cmpAddBtn');
   document.getElementById('btn-import-report-compare').textContent = T('importReport');
@@ -1483,7 +1544,7 @@ function currentReportEntry(){return LOCAL_STATE.reports.find(r=>r.fileName===LO
 function currentLocalRepo(){const entry=currentReportEntry();if(!entry)return null;return entry.report.repos.find(r=>r.repoId===LOCAL_STATE.currentRepoId)||entry.report.repos[0]||null}
 function findReportEntry(fileName){return LOCAL_STATE.reports.find(r=>r.fileName===fileName)||null}
 function isTopLevelRelativePath(p){const parts=String(p||'').split('/').filter(Boolean);return parts.length===2}
-function reportSourceLabel(source){return source==='folder'?T('localFolder'):source==='import'?T('localImported'):source==='legacy'?'Legacy':T('localCurrent')}
+function reportSourceLabel(source){return source==='folder'?T('localFolder'):source==='import'?T('localImported'):source==='legacy'?'Legacy':source==='api'?T('localApi'):T('localCurrent')}
 function normalizeRef(ref){
   const fromTools=Array.isArray(ref&&ref.fromTools)?ref.fromTools:(ref&&ref.fromTools?[ref.fromTools]:[]);
   return {
@@ -1689,6 +1750,248 @@ async function analyzeRepoData(owner,repo){
 }
 
 // ══════════════════════════════════════
+// OPTIONAL API LAYER (server.js /repos)
+// Tudo aqui é opcional: sem API, online=false e nada muda na UI.
+// ══════════════════════════════════════
+const API_STATE={base:'',online:false,repos:[],loading:false,error:false,seq:0,saveChain:Promise.resolve(),refreshTimer:null};
+const API_PROBE_TIMEOUT=1500;
+const API_DEFAULT_BASE='http://localhost:3000';
+
+/**
+ * Descobre a base da API: origem da página se veio por http(s); senão o valor
+ * salvo em localStorage['al-api-base'] ou o default http://localhost:3000.
+ * @returns {string} URL base sem barra final.
+ */
+function resolveApiBase(){
+  if(location.protocol==='http:'||location.protocol==='https:')return location.origin;
+  let saved=null;
+  try{saved=localStorage.getItem('al-api-base')}catch(e){}
+  return String(saved||API_DEFAULT_BASE).replace(/\/+$/,'');
+}
+
+/**
+ * fetch com timeout contra a API opcional.
+ * @param {string} path Caminho começando em "/" (ex.: "/repos").
+ * @param {RequestInit} [opts] Opções do fetch.
+ * @param {number} [timeoutMs=8000] Tempo máximo antes de abortar.
+ * @returns {Promise<any>} JSON da resposta (null se corpo vazio).
+ * @throws {Error} Em falha de rede, timeout ou status HTTP não-2xx.
+ */
+async function apiFetch(path,opts,timeoutMs){
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),timeoutMs||8000);
+  try{
+    const resp=await fetch(API_STATE.base+path,{...(opts||{}),signal:ctrl.signal});
+    if(!resp.ok)throw new Error(`HTTP ${resp.status}`);
+    const text=await resp.text();
+    return text?JSON.parse(text):null;
+  }finally{clearTimeout(timer)}
+}
+
+/**
+ * Sonda a API (GET /repos, ~1,5 s). Falha em silêncio deixando online=false;
+ * se responder, mostra o painel "Repositórios salvos" e já usa a lista obtida.
+ * @returns {Promise<boolean>} true se a API respondeu.
+ */
+async function probeApi(){
+  API_STATE.base=resolveApiBase();
+  try{
+    const list=await apiFetch('/repos',{method:'GET'},API_PROBE_TIMEOUT);
+    API_STATE.online=Array.isArray(list);
+    if(API_STATE.online){API_STATE.repos=list;API_STATE.error=false}
+  }catch(e){API_STATE.online=false}
+  renderApiRepos();
+  if(API_STATE.online&&document.getElementById('api-filter-agents').checked)loadApiRepos();
+  return API_STATE.online;
+}
+
+/**
+ * Converte um resultado de análise em objeto JSON-safe (Set de fromTools -> Array).
+ * @param {object} result Resultado de analyzeRepoData ou objeto de repo com uniqueRefs.
+ * @returns {object} Cópia rasa com uniqueRefs serializáveis.
+ */
+function toSerializableResult(result){
+  return {
+    ...result,
+    uniqueRefs:(result&&result.uniqueRefs||[]).map(r=>({...r,fromTools:[...(r.fromTools||[])]})),
+  };
+}
+
+/**
+ * Mostra/oculta o aviso discreto do painel de repositórios salvos.
+ * @param {string} [message] Texto do aviso; vazio limpa.
+ * @returns {void}
+ */
+function setApiNote(message){
+  const el=document.getElementById('api-note');
+  el.textContent=message||'';
+  el.classList.toggle('hidden',!message);
+}
+
+/**
+ * Aviso de erro da API visível em qualquer aba: nota no painel + toast discreto
+ * (some sozinho em ~6 s, não bloqueia a UI).
+ * @param {string} message Texto já traduzido.
+ * @returns {void}
+ */
+function notifyApiError(message){
+  setApiNote(message);
+  const el=document.getElementById('api-toast');
+  el.textContent=message;
+  el.classList.remove('hidden');
+  clearTimeout(notifyApiError.timer);
+  notifyApiError.timer=setTimeout(()=>el.classList.add('hidden'),6000);
+}
+
+/**
+ * Envia a análise para POST /repos (fire-and-forget, serializado em fila para
+ * não inundar a API no scanOrg). Só age quando a API está online; erros viram aviso.
+ * @param {string} owner Dono do repositório no GitHub.
+ * @param {string} repo Nome do repositório.
+ * @param {object} result Resultado de analyzeRepoData (ok=true).
+ * @returns {Promise<void>} Resolve sempre (nunca rejeita).
+ */
+function saveRepoToApi(owner,repo,result){
+  if(!API_STATE.online||!result||!result.ok)return Promise.resolve();
+  API_STATE.saveChain=API_STATE.saveChain.then(async()=>{
+    try{
+      await apiFetch('/repos',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({source:'github',owner,repo,branch:result.branch,result:toSerializableResult(result)}),
+      });
+      setApiNote('');
+      scheduleApiRefresh();
+    }catch(e){
+      console.warn('[agentlens] save to API failed',e);
+      notifyApiError(T('apiSaveError'));
+    }
+  });
+  return API_STATE.saveChain;
+}
+
+/**
+ * Agenda (debounce) a releitura da lista de repositórios salvos.
+ * @returns {void}
+ */
+function scheduleApiRefresh(){
+  clearTimeout(API_STATE.refreshTimer);
+  API_STATE.refreshTimer=setTimeout(()=>loadApiRepos(true),500);
+}
+
+/**
+ * Retry do painel: re-sonda a API e, se online, recarrega a lista.
+ * @returns {Promise<void>} Resolve ao terminar.
+ */
+async function retryApi(){
+  if(await probeApi())await loadApiRepos();
+}
+
+/**
+ * Busca GET /repos (com ?hasAgents=1 se o filtro estiver marcado) e renderiza.
+ * Ignora respostas obsoletas quando há chamadas concorrentes.
+ * @param {boolean} [silent=false] Se true e já há itens, não mostra "Carregando…" (evita flicker e anúncios repetidos no aria-live).
+ * @returns {Promise<void>} Resolve ao terminar; erros viram estado de erro com retry.
+ */
+async function loadApiRepos(silent){
+  if(!API_STATE.online)return;
+  const seq=++API_STATE.seq;
+  const onlyAgents=document.getElementById('api-filter-agents').checked;
+  API_STATE.error=false;
+  API_STATE.loading=!(silent===true&&API_STATE.repos.length);
+  if(API_STATE.loading)renderApiRepos();
+  try{
+    const list=await apiFetch(onlyAgents?'/repos?hasAgents=1':'/repos',{method:'GET'});
+    if(seq!==API_STATE.seq)return;
+    API_STATE.repos=Array.isArray(list)?list:[];
+  }catch(e){
+    if(seq!==API_STATE.seq)return;
+    API_STATE.error=true;
+  }
+  API_STATE.loading=false;
+  renderApiRepos();
+}
+
+/**
+ * Renderiza o painel "Repositórios salvos" (carregando/vazio/erro/lista).
+ * Todo texto vindo da API é escapado.
+ * @returns {void}
+ */
+function renderApiRepos(){
+  const panel=document.getElementById('api-repos-panel');
+  panel.classList.toggle('hidden',!API_STATE.online);
+  if(!API_STATE.online)return;
+  document.getElementById('api-status').textContent=T('apiStatusOnline')(API_STATE.base);
+  const list=document.getElementById('api-repos-list');
+  list.setAttribute('aria-busy',API_STATE.loading?'true':'false');
+  if(API_STATE.loading){list.innerHTML=`<div class="library-empty">${esc(T('apiLoading'))}</div>`;return}
+  if(API_STATE.error){
+    list.innerHTML=`<div class="library-empty">${esc(T('apiLoadError'))} <button class="action-btn api-retry" onclick="retryApi()">${esc(T('apiRetry'))}</button></div>`;
+    return;
+  }
+  if(!API_STATE.repos.length){
+    const onlyAgents=document.getElementById('api-filter-agents').checked;
+    list.innerHTML=`<div class="library-empty">${esc(T(onlyAgents?'apiEmptyAgents':'apiEmpty'))}</div>`;
+    return;
+  }
+  const locale=LANG==='pt'?'pt-BR':'en-US';
+  const nf=new Intl.NumberFormat(locale);
+  list.innerHTML=API_STATE.repos.map(r=>{
+    const tools=Array.isArray(r.tools)?r.tools:(r.tools?[r.tools]:[]);
+    const date=r.last_analyzed_at?new Date(r.last_analyzed_at):null;
+    const dateStr=date&&!isNaN(date)?date.toLocaleString(locale):'';
+    const toolsStr=r.has_agents&&tools.length?tools.join(', '):T('apiNoAgents');
+    return `<button type="button" class="library-item api-repo-btn" onclick="openApiRepo(${Number(r.id)},this)">
+      <span class="library-file api-line">${esc(r.repo_name||r.repo_key)}</span>
+      <span class="library-meta api-line">${esc(toolsStr)} · ${nf.format(Number(r.total_tokens)||0)} tokens · ${esc(T('apiAnalysesCount')(Number(r.analyses_count)||0))}${dateStr?` · ${esc(dateStr)}`:''}</span>
+    </button>`;
+  }).join('');
+}
+
+/**
+ * Abre um repositório salvo: GET /repos/:id, registra as análises como
+ * relatórios (source 'api') e exibe a mais recente na aba Analyze; as demais
+ * viram snapshots históricos.
+ * @param {number} id Id do repositório na API.
+ * @param {HTMLElement} [btn] Botão clicado (desabilitado durante a carga).
+ * @returns {Promise<void>} Resolve ao terminar; erro vira aviso no painel.
+ */
+async function openApiRepo(id,btn){
+  if(btn)btn.disabled=true;
+  try{
+    const repoDoc=await apiFetch(`/repos/${encodeURIComponent(id)}`,{method:'GET'});
+    const analyses=Array.isArray(repoDoc&&repoDoc.analyses)?repoDoc.analyses:[];
+    const when=a=>a.analyzed_at||a.created_at||a.generatedAt||repoDoc.last_analyzed_at||null;
+    const withResult=analyses.filter(a=>a&&a.result);
+    if(!withResult.length)throw new Error('no-result');
+    // Contrato: analyses[] mais nova primeiro, só a primeira com result completo; ela é a atual.
+    const latest=withResult.reduce((m,a)=>(new Date(when(a)||0)>=new Date(when(m)||0)?a:m));
+    const repoName=repoDoc.repo_name||repoDoc.repo_key;
+    const key=repoDoc.repo_key||String(id);
+    const toDoc=(a,fileName)=>normalizeReportDoc({
+      kind:'agentlens-report',schemaVersion:1,generatedAt:when(a),
+      repos:[{...(a.result||{totalContextTokens:Number(a.total_tokens)||0}),repoName}],
+    },fileName);
+    // Análises antigas vêm sem result (só id/created_at/cli_version): só viram snapshot se trouxerem total_tokens.
+    analyses.filter(a=>a&&a!==latest&&(a.result||a.total_tokens!=null)).forEach(a=>{
+      const doc=toDoc(a,`api:${key}#${a.id}`);
+      if(doc)registerReportDoc(doc,'api');
+    });
+    const currentDoc=toDoc(latest,`api:${key}`);
+    if(!currentDoc)throw new Error('invalid-report');
+    registerReportDoc(currentDoc,'api');
+    setCurrentLocalRepo(currentDoc.fileName,currentDoc.repos[0].repoId);
+    setApiNote('');
+    setArea('analyze');
+  }catch(e){
+    console.warn('[agentlens] open from API failed',e);
+    notifyApiError(T('apiOpenError'));
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
+// ══════════════════════════════════════
 // MAIN ANALYZE (single repo + UI)
 // ══════════════════════════════════════
 async function analyze(){
@@ -1711,6 +2014,7 @@ async function analyze(){
     else showStatus(`🔒 ${T('errPrivate')}<br><span style="font-weight:400;font-size:.84rem;color:var(--g500)">${T('errPrivateDetail')}</span>`,'error');
     resetBtn();return
   }
+  saveRepoToApi(owner,repo,data); // opcional/fire-and-forget; no-op sem API
   if(data.noFiles){showStatus(T('noFiles'),'warn');resetBtn();return}
 
   STATE.analyzed=true;STATE.totalContextTokens=data.totalContextTokens;STATE.foundByTool=data.foundByTool;STATE.uniqueRefs=data.uniqueRefs;
@@ -1989,6 +2293,7 @@ function setArea(area){
     document.getElementById(`area-tab-${a}`).classList.toggle('active',a===area);
   });
   if(area==='compare'&&COMPARE_STATE.results.length)renderCompareResults();
+  if(area==='reports')probeApi(); // re-sonda: o servidor pode ter subido/caído desde o load
 }
 function setMode(mode){setArea(mode==='compare'?'compare':'analyze')}
 
@@ -2279,6 +2584,7 @@ async function scanOrg(org){
         ...scanData,
       };
       ORG_SCAN_STATE.repos.push(entry);
+      if(scanData.ok)saveRepoToApi(repo.owner.login,repo.name,scanData); // fila serial; no-op sem API
       if(scanData.ok&&!scanData.noFiles){
         ORG_SCAN_STATE.configured.push(entry);
       }else{
@@ -2848,6 +3154,10 @@ function addCurrentAnalyzedToCompare(){
   }
 }
 
+/**
+ * Exporta a análise atual como JSON (agentlens-report) via download.
+ * @returns {void}
+ */
 function exportCurrentAnalysis(){
   if(!STATE.analyzed)return;
   const repoName=document.getElementById('repo-url').value.trim().split('/').pop()||'repo';
@@ -2857,7 +3167,7 @@ function exportCurrentAnalysis(){
     repos:[{
       repoName,
       foundByTool:STATE.foundByTool,
-      uniqueRefs:STATE.uniqueRefs.map(r=>({...r,fromTools:[...r.fromTools]})),
+      uniqueRefs:toSerializableResult({uniqueRefs:STATE.uniqueRefs}).uniqueRefs,
       agentTok:Object.values(STATE.foundByTool).reduce((s,f)=>s+estimateTokens(f.content),0),
       refTok:calcRefTok(STATE.uniqueRefs),
       viewTokensByTool:calcToolViewTokens(STATE.foundByTool,STATE.uniqueRefs),
@@ -3274,6 +3584,7 @@ applyI18N();
   renderLocalWorkspace();
   renderCmpQueue();
   renderSavedComparisons();
+  probeApi(); // opcional: sem API, falha em silêncio e o painel fica oculto
 })();
 </script>
 </body>
