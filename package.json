@@ -12,9 +12,6 @@
     "test": "node --test test/*.test.js",
     "server": "node server.js"
   },
-  "dependencies": {
-    "better-sqlite3": "^9.4.3"
-  },
   "publishConfig": {
     "access": "public"
   },
