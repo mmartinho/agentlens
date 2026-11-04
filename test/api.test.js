@@ -1,7 +1,7 @@
 /*
 Autor(es): marcus.antonio.martinho.silva@gmail.com
 Data Criação: 2026-03-28
-Data Atualização: 2026-11-03
+Data Atualização: 2026-11-04
 Descrição: Testes da API HTTP (`server.js`) com node:test. Sobem o servidor em porta efêmera com um banco SQLite temporário (`AGENTLENS_DB`) e cobrem /analyze, /history, /repos, CORS, estático e migração do esquema.
 */
 'use strict';
@@ -237,6 +237,45 @@ test('GET /repos/:id traz análises e DELETE seguido de GET retorna 404', async 
   assert.equal(after.body.error, 'repositório não encontrado');
   const del2 = await request('DELETE', `/repos/${id}`);
   assert.equal(del2.status, 404);
+});
+
+test('DELETE /history/:id da única análise de um repo remove o repo de GET /repos e GET /repos/:id retorna 404', async () => {
+  const post = await request('POST', '/repos', repoPayload('unica'));
+  const repoId = post.body.repo.id;
+  const del = await request('DELETE', `/history/${post.body.analysisId}`);
+  assert.equal(del.status, 200);
+  assert.equal(del.body.deleted, true);
+  const list = await request('GET', '/repos');
+  assert.ok(!list.body.some(r => r.repo_key === 'github:acme/unica'));
+  const get = await request('GET', `/repos/${repoId}`);
+  assert.equal(get.status, 404);
+  assert.equal(get.body.error, 'repositório não encontrado');
+});
+
+test('DELETE /history/:id da análise mais recente mantém o repo com os dados da análise restante', async () => {
+  const first = await request('POST', '/repos', repoPayload('recalcula', { totalContextTokens: 10 }));
+  const repoId = first.body.repo.id;
+  const second = await request('POST', '/repos', repoPayload('recalcula', { totalContextTokens: 99, foundByTool: {}, uniqueRefs: [], noFiles: true }));
+  const before = await request('GET', `/repos/${repoId}`);
+  assert.equal(before.body.analyses_count, 2);
+  assert.equal(before.body.total_tokens, 99);
+  assert.equal(before.body.has_agents, false);
+  const del = await request('DELETE', `/history/${second.body.analysisId}`);
+  assert.equal(del.status, 200);
+  const res = await request('GET', `/repos/${repoId}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.analyses_count, 1);
+  assert.equal(res.body.total_tokens, 10);
+  assert.equal(res.body.has_agents, true);
+  assert.deepEqual(res.body.tools, ['claude']);
+  assert.equal(res.body.analyses.length, 1);
+  assert.equal(res.body.last_analyzed_at, res.body.analyses[0].created_at);
+});
+
+test('DELETE /history/:id inexistente retorna 404 com error', async () => {
+  const res = await request('DELETE', '/history/999999');
+  assert.equal(res.status, 404);
+  assert.equal(typeof res.body.error, 'string');
 });
 
 test('db.saveRepoAnalysis com erro dentro da transação faz rollback e a próxima operação funciona', () => {

@@ -66,7 +66,7 @@ HOST=0.0.0.0 node server.js   # interface de escuta (padrão 127.0.0.1)
 | `POST` | `/analyze` | `{ "path": "/caminho/repo" }` — analisa e salva |
 | `GET` | `/history` | Lista todas as análises salvas |
 | `GET` | `/history/:id` | Análise completa por ID |
-| `DELETE` | `/history/:id` | Remove uma análise |
+| `DELETE` | `/history/:id` | Remove uma análise; mantém `repos` consistente (recalcula o repo ou o remove quando fica sem análises) |
 | `POST` | `/repos` | `{ "source": "github", "owner", "repo", "result": {...} }` — salva (upsert) um repositório analisado no browser; responde `201 { repo, analysisId }` |
 | `GET` | `/repos` | Lista repositórios salvos; `?hasAgents=1` filtra os que têm agents |
 | `GET` | `/repos/:id` | Repositório + `analyses` (cada item com `id`, `created_at`, `cli_version`, `total_tokens`; a mais recente também traz `result` completo) |

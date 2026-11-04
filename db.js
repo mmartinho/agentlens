@@ -1,7 +1,7 @@
 /*
 Autor(es): marcus.antonio.martinho.silva@gmail.com
 Data Criação: 2026-03-28
-Data Atualização: 2026-11-03
+Data Atualização: 2026-11-04
 Descrição: Repositório SQLite do histórico do agentlens. Mantém a tabela `analyses` (uma linha por análise) e a tabela `repos` (uma linha por repositório, com upsert por `repo_key`).
 
 A conexão é lazy e única (`getDb()`); o esquema é criado e migrado de forma idempotente e retrocompatível com arquivos .db antigos.
@@ -246,14 +246,47 @@ function getAnalysis(id) {
 }
 
 /**
- * Remove uma análise por id.
+ * Remove uma análise por id e mantém a tabela `repos` consistente, numa transação.
+ * Se a análise pertencia a um repo: quando ainda restam análises, recalcula as colunas
+ * desnormalizadas (contagem, última análise, tokens, has_agents, tools) a partir da mais recente;
+ * quando não resta nenhuma, remove a linha do repo. Análises legadas (sem repo_id) só são apagadas.
  * @param {number} id Id da análise.
  * @returns {boolean} true se a análise existia e foi removida.
- * @throws {Error} Se a remoção falhar.
+ * @throws {Error} Se a remoção falhar ou `result_json` da análise restante estiver corrompido (a transação é revertida).
  */
 function deleteAnalysis(id) {
-  const info = getDb().prepare('DELETE FROM analyses WHERE id = ?').run(id);
-  return Number(info.changes) > 0;
+  const db = getDb();
+  return withTransaction(db, () => {
+    // 1. Descobre o repo da análise antes de apagá-la (undefined se a análise não existir).
+    const row = db.prepare('SELECT repo_id FROM analyses WHERE id = ?').get(id);
+    // 2. Apaga a análise; changes === 0 significa id inexistente (a rota responde 404).
+    const info = db.prepare('DELETE FROM analyses WHERE id = ?').run(id);
+    if (Number(info.changes) === 0) return false;
+    // Análise legada (repo_id nulo): nada a recalcular.
+    if (!row || row.repo_id === null || row.repo_id === undefined) return true;
+    const repoId = Number(row.repo_id);
+    // 3. Análise mais recente que sobrou para o repo (maior id).
+    const latest = db.prepare(
+      'SELECT created_at, result_json FROM analyses WHERE repo_id = ? ORDER BY id DESC LIMIT 1'
+    ).get(repoId);
+    if (!latest) {
+      // 4. Sem análises restantes: o repo some do histórico.
+      db.prepare('DELETE FROM repos WHERE id = ?').run(repoId);
+      return true;
+    }
+    const sum = summarizeResult(JSON.parse(latest.result_json));
+    const count = Number(db.prepare('SELECT COUNT(*) AS n FROM analyses WHERE repo_id = ?').get(repoId).n);
+    db.prepare(`
+      UPDATE repos SET
+        analyses_count = ?,
+        last_analyzed_at = ?,
+        total_tokens = ?,
+        has_agents = ?,
+        tools_json = ?
+      WHERE id = ?
+    `).run(count, latest.created_at, sum.total_tokens, sum.has_agents ? 1 : 0, JSON.stringify(sum.tools), repoId);
+    return true;
+  });
 }
 
 /**
